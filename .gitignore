@@ -1,0 +1,19 @@
+# --- 1. Python 編譯暫存檔 (截圖中最上面的 __pycache__ 資料夾) ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- 2. ⚠️ 資安機密檔 (這些絕對不能上傳！) ---
+.env
+credentials.json
+token.pickle
+token.json
+client_secret.json
+
+# --- 3. 虛擬環境 (雖然你現在沒看到，但預防萬一) ---
+venv/
+.venv/
+env/
+
+# --- 4. 系統檔案 (Mac 電腦會自動產生的垃圾檔) ---
+.DS_Store

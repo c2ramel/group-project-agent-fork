@@ -2,78 +2,80 @@ import streamlit as st
 import time
 import datetime
 import graphviz
+import re  # 新增 re 用於解析錯誤訊息
 # 確保這些檔案都在同一個目錄下
-from google_utils import get_google_service, create_doc_with_content, share_file_permissions, send_gmail
+from google_utils import get_google_service, create_doc_with_content, create_slides_presentation, share_file_permissions, send_gmail
 from llm_helper import extract_text_from_pdf, generate_project_plan
 
 # --- 頁面設定 ---
 st.set_page_config(page_title="Course Agent", page_icon="🤖", layout="wide")
 
-# --- 狀態圖繪製 (符合 Report 要求) ---
+# --- 狀態圖繪製 ---
 def draw_dag():
     graph = graphviz.Digraph()
     graph.attr(rankdir='LR')
-    # 定義節點
-    graph.node('A', 'Start: User Input', shape='oval')
-    graph.node('B', 'LLM: Analyze PDF & Plan', shape='box', style='filled', fillcolor='lightblue')
-    graph.node('C', 'Tool: Create Google Doc', shape='box', style='filled', fillcolor='lightyellow')
-    graph.node('D', 'Tool: Set Permissions', shape='box', style='filled', fillcolor='lightyellow')
-    graph.node('E', 'Tool: Send Email Invite', shape='box', style='filled', fillcolor='lightyellow')
-    graph.node('F', 'End: Success', shape='oval', style='filled', fillcolor='lightgreen')
+    graph.node('A', 'Start', shape='oval')
+    graph.node('B', 'LLM Analysis', shape='box', style='filled', fillcolor='lightblue')
+    graph.node('C1', 'Create Doc', shape='box', style='filled', fillcolor='lightyellow')
+    graph.node('C2', 'Create Slide', shape='box', style='filled', fillcolor='lightyellow')
+    graph.node('D', 'Set Permissions', shape='box', style='filled', fillcolor='lightyellow')
+    graph.node('E', 'Send Email', shape='box', style='filled', fillcolor='lightyellow')
+    graph.node('F', 'End', shape='oval', style='filled', fillcolor='lightgreen')
 
-    # 定義連線
     graph.edge('A', 'B')
-    graph.edge('B', 'C')
-    graph.edge('C', 'D')
+    graph.edge('B', 'C1')
+    graph.edge('B', 'C2')
+    graph.edge('C1', 'D')
+    graph.edge('C2', 'D')
     graph.edge('D', 'E')
     graph.edge('E', 'F')
     return graph
 
 # --- 主程式 ---
 def main():
-    st.title("🎓 自動化期末報告組隊 Agent")
+    st.title("🎓 GPA (Group Project Agent)")
     st.markdown("### Intelligent Agent for Group Projects")
     
-    # 左側邊欄：系統狀態與 Google 登入
+    # 左側邊欄
     with st.sidebar:
         st.header("⚙️ 系統設定")
         st.info("請先登入 Google 帳號以啟用 Agent 工具")
         
-        # 初始化 session_state
         if 'services' not in st.session_state:
             st.session_state.services = None
 
         if st.button("🔑 登入 Google"):
             try:
-                # 這裡會觸發 OAuth 登入流程
-                gmail, drive, docs = get_google_service()
+                # 注意：這裡現在會回傳 4 個物件
+                gmail, drive, docs, slides = get_google_service()
                 if gmail:
-                    st.session_state.services = (gmail, drive, docs)
+                    st.session_state.services = (gmail, drive, docs, slides)
                     st.success("登入成功！")
             except Exception as e:
                 st.error(f"登入失敗: {e}")
         
-        # 顯示目前登入狀態
         if st.session_state.services:
             st.success("✅ Google 服務已連線")
         
-        # 顯示 DAG 圖
         st.divider()
         st.markdown("**System Logic (DAG)**")
         st.graphviz_chart(draw_dag())
 
-    # 主畫面區塊
+    # 主畫面
     col1, col2 = st.columns([1, 1])
 
     with col1:
         st.subheader("1️⃣ 輸入專案資訊")
         with st.form("project_input"):
             course_name = st.text_input("課程名稱", "計算理論")
-            # 這裡輸入 raw_ids (字串)，方便直接傳給 LLM
             raw_ids = st.text_area("組員學號或 Email (用逗號分隔)", "f74122030, joshuatseng0233@gmail.com")
             uploaded_file = st.file_uploader("上傳作業說明 (PDF)", type="pdf")
             default_deadline = datetime.date.today() + datetime.timedelta(days=14)
             deadline = st.date_input("📅 報告截止日期", default_deadline)
+            
+            st.write("📄 **選擇產出格式 (至少選一項)**")
+            use_docs = st.checkbox("Google Docs (企劃書)", value=True)
+            use_slides = st.checkbox("Google Slides (簡報)", value=False)
             
             submitted = st.form_submit_button("🚀 啟動 Agent")
 
@@ -83,24 +85,31 @@ def main():
 
     # --- 執行邏輯 ---
     if submitted:
-        # 檢查 1: 是否已登入
         if not st.session_state.services:
             st.error("請先在左側欄登入 Google！")
             st.stop()
-            
-        # 檢查 2: 是否上傳檔案
         if not uploaded_file:
             st.error("請上傳 PDF 作業說明檔！")
             st.stop()
+        if not use_docs and not use_slides:
+            st.error("⚠️ 請至少選擇一種產出格式 (Docs 或 Slides)！")
+            st.stop()
 
         # 取得服務物件
-        gmail_svc, drive_svc, docs_svc = st.session_state.services
+        gmail_svc, drive_svc, docs_svc, slides_svc = st.session_state.services
         
-        # 處理 Email：將學號轉為學校信箱，如果是完整 Email 則保留
-        student_ids_list = [s.strip() for s in raw_ids.split(',')]
+        # 🟢 【修正點 1：過濾無效輸入】
+        # 使用 if s.strip() 過濾掉空字串，防止出現 "@gs.ncku.edu.tw" 這種無效 Email
+        student_ids_list = [s.strip() for s in raw_ids.split(',') if s.strip()]
         emails = [f"{sid}@gs.ncku.edu.tw" if "@" not in sid else sid for sid in student_ids_list]
+        
+        today_str = str(datetime.date.today())
+        deadline_str = str(deadline)
+        
+        # 初始化成功旗標
+        is_success = True
 
-        # --- 步驟 1: 讀取 PDF ---
+        # --- 1. 讀取 PDF ---
         with log_container:
             st.write("📂 讀取 PDF 中...")
             pdf_text = extract_text_from_pdf(uploaded_file)
@@ -109,73 +118,126 @@ def main():
                 st.stop()
             st.success(f"✅ PDF 讀取完成 ({len(pdf_text)} 字)")
 
-        # --- 步驟 2: LLM 規劃 (關鍵修改處) ---
-        with log_container:
-            st.write("🤖 LLM 正在分析需求並生成分工表...")
-            with st.spinner("思考中 (約需 30-60 秒)..."):
-                # 取得今天日期
-                today_str = str(datetime.date.today())
-                deadline_str = str(deadline)
-                
-                # 傳入 5 個參數：課程, 組員, PDF內容, 今天日期, 死線
-                plan_content = generate_project_plan(course_name, raw_ids, pdf_text, today_str, deadline_str)
-            
-            # 檢查 LLM 是否回傳錯誤
-            if plan_content.startswith("❌"):
-                st.error(plan_content)
-                st.stop()
-                
-            st.success("✅ 專案規劃生成完畢！")
-            with st.expander("查看生成內容"):
-                st.markdown(plan_content)
+        doc_url = None
+        slide_url = None
 
-        # --- 步驟 3: 建立文件 ---
-        with log_container:
-            st.write("📝 正在建立 Google Doc...")
-            doc_title = f"[{course_name}] 期末報告共筆 - Agent生成"
-            try:
-                doc_id, doc_url = create_doc_with_content(docs_svc, drive_svc, doc_title, plan_content)
-                if doc_url:
-                    st.success(f"✅ 文件建立成功: [點擊開啟]({doc_url})")
+        # --- 2. 處理 Google Docs ---
+        if use_docs:
+            with log_container:
+                st.info("📝 正在處理 Google Docs 任務...")
+                with st.spinner("🤖 AI 正在撰寫企劃書..."):
+                    plan_docs = generate_project_plan(course_name, raw_ids, pdf_text, today_str, deadline_str, "Docs")
+                
+                if plan_docs.startswith("❌"):
+                    st.error(f"Docs 生成失敗: {plan_docs}")
+                    is_success = False
                 else:
-                    st.error("❌ 文件建立失敗")
-                    st.stop()
-            except Exception as e:
-                st.error(f"建立文件時發生錯誤: {e}")
+                    doc_title = f"[{course_name}] 期末報告企劃書"
+                    try:
+                        doc_id, doc_url = create_doc_with_content(docs_svc, drive_svc, doc_title, plan_docs)
+                        if doc_url:
+                            st.success(f"✅ 企劃書建立成功: [點擊開啟]({doc_url})")
+                            share_file_permissions(drive_svc, doc_id, emails)
+                        else:
+                            st.error("❌ 企劃書建立失敗 (API 回傳空值)")
+                            is_success = False
+                    except Exception as e:
+                        st.error(f"❌ 企劃書建立過程發生錯誤: {e}")
+                        is_success = False
+
+        # --- 3. 處理 Google Slides ---
+        if use_slides:
+            with log_container:
+                st.info("📊 正在處理 Google Slides 任務...")
+                with st.spinner("🤖 AI 正在規劃簡報架構..."):
+                    plan_slides = generate_project_plan(course_name, raw_ids, pdf_text, today_str, deadline_str, "Slides")
+                
+                if plan_slides.startswith("❌"):
+                    st.error(f"Slides 生成失敗: {plan_slides}")
+                    is_success = False
+                else:
+                    slide_title = f"[{course_name}] 期末報告簡報"
+                    try:
+                        slide_id, slide_url = create_slides_presentation(slides_svc, drive_svc, slide_title, plan_slides)
+                        
+                        if slide_url:
+                            st.success(f"✅ 簡報建立成功: [點擊開啟]({slide_url})")
+                            share_file_permissions(drive_svc, slide_id, emails)
+                        else:
+                            st.error("❌ 簡報建立失敗 (JSON 解析錯誤或 API 權限問題)")
+                            is_success = False
+                    except Exception as e:
+                        st.error(f"❌ 簡報建立過程發生錯誤: {e}")
+                        is_success = False
+
+        # --- 4. 寄信通知 ---
+        with log_container:
+            # 檢查是否全部成功 (煞車機制)
+            if not is_success:
+                st.error("⛔️ 由於部分檔案生成失敗，系統已終止，不會發送 Email 以免誤導組員。")
                 st.stop()
 
-        # --- 步驟 4: 設定權限 ---
-        with log_container:
-            st.write("👥 設定組員權限...")
-            try:
-                share_file_permissions(drive_svc, doc_id, emails)
-                st.success(f"✅ 已將權限分享給: {', '.join(emails)}")
-            except Exception as e:
-                st.warning(f"⚠️ 權限設定部分失敗 (可能是 Email 格式錯誤): {e}")
-
-        # --- 步驟 5: 寄信 ---
-        with log_container:
             st.write("📧 正在寄信通知組員...")
             subject = f"[{course_name}] 期末報告分工通知 (AI Agent)"
+            
+            links_text = ""
+            if doc_url:
+                links_text += f"📄 企劃書連結：{doc_url}\n"
+            if slide_url:
+                links_text += f"📊 簡報連結：{slide_url}\n"
+
             email_body = f"""
             各位同學好：
             
             這是一封由 AI Agent 自動發送的通知。
-            針對 {course_name} 的期末報告，我已經根據作業 PDF 產生了初步分工表。
+            針對 {course_name} 的期末報告，我已經根據作業 PDF 產生了初步架構。
             
             請大家到以下連結開始協作：
-            {doc_url}
+            {links_text}
             
-            (此信件為系統自動發送)
+            祝 報告順利！
             """
-            try:
-                send_gmail(gmail_svc, emails, subject, email_body)
-                st.success("✅ Email 發送完畢！")
-            except Exception as e:
-                 st.warning(f"⚠️ 寄信失敗: {e}")
             
-        st.balloons()
-        st.success("🏆 所有流程執行完畢！")
+            # 🟢 【修正點 2：美化錯誤訊息顯示】
+            try:
+                success_emails, failed_emails = send_gmail(gmail_svc, emails, subject, email_body)
+                
+                # 1. 顯示成功名單 (綠色)
+                if success_emails:
+                    st.success(f"✅ Email 發送成功 ({len(success_emails)} 人)：\n" + ", ".join(success_emails))
+                
+                # 2. 顯示失敗名單 (紅色 + 轉換為人話)
+                if failed_emails:
+                    st.error(f"⚠️ 發送失敗 ({len(failed_emails)} 人)：")
+                    for email, error_msg in failed_emails:
+                        # 錯誤翻譯機
+                        reason = "未知錯誤"
+                        if "Invalid To header" in error_msg:
+                            reason = "Email 格式錯誤 (可能缺少使用者名稱)"
+                        elif "Address not found" in error_msg:
+                            reason = "找不到此 Email 地址 (查無此人)"
+                        elif "The specified emailAddress is invalid" in error_msg:
+                            reason = "Email 地址無效"
+                        else:
+                            # 嘗試只擷取 Google API 回傳的具體原因
+                            if "returned" in error_msg:
+                                match = re.search(r'returned "(.*?)"', error_msg)
+                                if match:
+                                    reason = match.group(1)
+                                else:
+                                    reason = "系統連線被拒"
+                            else:
+                                reason = "系統連線錯誤"
+
+                        st.write(f"❌ **{email}** → {reason}")
+                
+                # 3. 最終慶祝 (只有在至少有一人成功時才顯示)
+                if success_emails:
+                    st.balloons()
+                    st.success("🏆 所有流程執行完畢！")
+
+            except Exception as e:
+                 st.error(f"⚠️ 寄信功能發生系統錯誤: {e}")
 
 if __name__ == "__main__":
     main()

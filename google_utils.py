@@ -27,19 +27,25 @@ def get_google_creds():
     
     # Strategy 1: Production - Check Streamlit Secrets
     # This fixes Issue #1 by allowing server-side config without file upload
-    if "google_oauth" in st.secrets:
-        try:
-            # Reconstruct credentials from dictionary in secrets
-            creds = Credentials.from_authorized_user_info(
-                info=st.secrets["google_oauth"], 
-                scopes=SCOPES
-            )
-        except Exception as e:
-            st.error(f"⚠️ Error loading credentials from secrets: {e}")
+    # FIXED: Added try-except because accessing st.secrets crashes if no file exists
+    try:
+        if "google_oauth" in st.secrets:
+            try:
+                # Reconstruct credentials from dictionary in secrets
+                creds = Credentials.from_authorized_user_info(
+                    info=st.secrets["google_oauth"], 
+                    scopes=SCOPES
+                )
+            except Exception as e:
+                st.error(f"⚠️ Error loading credentials from secrets: {e}")
+    except Exception:
+        # StreamlitSecretNotFoundError or FileNotFoundError will be caught here
+        # We silently pass to allow fallback to local strategies
+        pass
 
     # Strategy 2: Local Development - Check token.json
     # Fixes Issue #4: Replaces insecure 'pickle' with standard JSON
-    elif os.path.exists('token.json'):
+    if not creds and os.path.exists('token.json'):
         try:
             creds = Credentials.from_authorized_user_file('token.json', SCOPES)
         except Exception as e:

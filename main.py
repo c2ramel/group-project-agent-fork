@@ -1,8 +1,8 @@
 import streamlit as st
 import time
 import datetime
-# REMOVED: import graphviz (Fixes Issue #15)
 import re
+import os  # Added for environment variables
 from google_utils import get_google_service, create_doc_with_content, create_slides_presentation, share_file_permissions, send_gmail
 from llm_helper import extract_text_from_pdf, generate_project_plan
 
@@ -13,7 +13,6 @@ st.set_page_config(page_title="Course Agent", page_icon="🤖", layout="wide")
 def draw_dag():
     """
     Returns a Graphviz DOT string directly.
-    This avoids the dependency on the 'graphviz' python library and system binaries.
     """
     return """
     digraph {
@@ -50,12 +49,8 @@ def main():
         if 'services' not in st.session_state:
             st.session_state.services = None
 
-        # 🟢 Authentication Check
-        # If secrets are configured or token exists, we might already be logged in.
-        # But for this UI, we keep the manual button or check status.
         if st.button("🔑 登入 Google"):
             try:
-                # get_google_service now handles the complexity internally
                 gmail, drive, docs, slides = get_google_service()
                 if gmail:
                     st.session_state.services = (gmail, drive, docs, slides)
@@ -68,8 +63,6 @@ def main():
         
         st.divider()
         st.markdown("**System Logic (DAG)**")
-        
-        # Streamlit handles strings natively without requiring the system binary
         st.graphviz_chart(draw_dag())
 
     # 主畫面
@@ -111,7 +104,11 @@ def main():
         
         # 🟢 【修正點 1：過濾無效輸入】
         student_ids_list = [s.strip() for s in raw_ids.split(',') if s.strip()]
-        emails = [f"{sid}@gs.ncku.edu.tw" if "@" not in sid else sid for sid in student_ids_list]
+        
+        # 🟢 【修正點 2：動態 Email Domain (Fixes Issue #13)】
+        # 優先讀取環境變數，若無則預設為 gmail.com (通用性更高) 或原學校網域
+        default_domain = os.getenv("DEFAULT_EMAIL_DOMAIN", "gs.ncku.edu.tw")
+        emails = [f"{sid}@{default_domain}" if "@" not in sid else sid for sid in student_ids_list]
         
         today_str = str(datetime.date.today())
         deadline_str = str(deadline)
@@ -208,19 +205,15 @@ def main():
             祝 報告順利！
             """
             
-            # 🟢 【修正點 2：美化錯誤訊息顯示】
             try:
                 success_emails, failed_emails = send_gmail(gmail_svc, emails, subject, email_body)
                 
-                # 1. 顯示成功名單 (綠色)
                 if success_emails:
                     st.success(f"✅ Email 發送成功 ({len(success_emails)} 人)：\n" + ", ".join(success_emails))
                 
-                # 2. 顯示失敗名單 (紅色 + 轉換為人話)
                 if failed_emails:
                     st.error(f"⚠️ 發送失敗 ({len(failed_emails)} 人)：")
                     for email, error_msg in failed_emails:
-                        # 錯誤翻譯機
                         reason = "未知錯誤"
                         if "Invalid To header" in error_msg:
                             reason = "Email 格式錯誤 (可能缺少使用者名稱)"
@@ -229,7 +222,6 @@ def main():
                         elif "The specified emailAddress is invalid" in error_msg:
                             reason = "Email 地址無效"
                         else:
-                            # 嘗試只擷取 Google API 回傳的具體原因
                             if "returned" in error_msg:
                                 match = re.search(r'returned "(.*?)"', error_msg)
                                 if match:
@@ -241,7 +233,6 @@ def main():
 
                         st.write(f"❌ **{email}** → {reason}")
                 
-                # 3. 最終慶祝 (只有在至少有一人成功時才顯示)
                 if success_emails:
                     st.balloons()
                     st.success("🏆 所有流程執行完畢！")

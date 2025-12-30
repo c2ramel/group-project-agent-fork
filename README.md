@@ -4,7 +4,7 @@
 
 **GPA** is an intelligent agent designed to streamline the chaotic "kickoff" phase of university group projects. By modeling administrative workflows as a **Deterministic Finite Automaton (DFA)**, this tool orchestrates the entire process—from analyzing assignment requirements to establishing collaborative workspaces—eliminating the initial friction of teamwork.
 
-Developed for the **Theory of Computation** course at **National Cheng Kung University (NCKU)**.
+Developed for the **Theory of Computation** course at **National Cheng Kung University (NCKU)**, but now fully configurable for general use.
 
 ---
 
@@ -18,7 +18,7 @@ In General Education (通識) courses, students are often assigned to interdisci
 3.  Asking for Student IDs one by one.
 4.  Manually creating and sharing Google Docs/Slides links.
 
-**GPA** solves this by automating the entire loop. Students simply input their **Student IDs** during class, and the Agent takes over: parsing the assignment, creating the workspace, and emailing every member with their tasks and access links instantly.
+**GPA** solves this by automating the entire loop. Students simply input their **Student IDs** (or Emails) during class, and the Agent takes over: parsing the assignment, creating the workspace, and emailing every member with their tasks and access links instantly.
 
 ---
 
@@ -38,14 +38,15 @@ By modeling the project startup process as a finite-state machine, this agent:
 
 ## ✨ Key Features
 
-* **🤖 LLM-Powered Analysis**: Utilizes NCKU's internal LLM API (GPT-OSS/Llama 3) to parse PDF assignment guidelines and extract actionable tasks.
+* **🤖 Multi-Provider LLM Support**: Supports **OpenAI**, **Google Gemini**, **Ollama (Local)**, and **NCKU Internal API**. Configurable via environment variables.
 * **📄 Multi-Modal Output**:
     * **Google Docs**: Generates a comprehensive project proposal and task breakdown.
     * **Google Slides**: Creates a structured presentation outline for the project.
 * **☁️ Google Workspace Automation**:
-    * **Smart Identity Resolution**: Automatically converts Student IDs into official university email addresses.
+    * **Smart Identity Resolution**: Automatically appends your organization's email domain (configurable).
+    * **Secure Auth**: Uses secure JSON token storage and restricted `drive.file` scope (Least Privilege).
     * **Drive & Gmail**: Automatically creates files, manages permissions, and sends kickoff emails.
-* **⚡ State Visualization**: Visualizes the agent's workflow as a Directed Acyclic Graph (DAG) in real-time.
+* **⚡ State Visualization**: Visualizes the agent's workflow as a Directed Acyclic Graph (DAG) in real-time (Pure Python, no system binaries required).
 
 ---
 
@@ -58,8 +59,8 @@ The agent operates as a robust state machine ($M$) where:
 * $\delta$ (Transition Function): The logic defined in `main.py` ensuring a strictly ordered execution sequence.
 
 ### Error Handling as States
-Unlike traditional scripts that crash on exception, **Failures are explicitly modeled as states ($Q_{err}$) rather than implicit exceptions.**
-* If an API call (e.g., LLM timeout) fails, the system transitions to a specific error handling state to attempt recovery or graceful degradation, rather than terminating the process abruptly.
+Unlike traditional scripts that crash on exception, **Failures are explicitly modeled**.
+* If an API call (e.g., LLM timeout) fails, the system transitions to a specific error handling state to attempt recovery (Retry Mechanism) or graceful degradation, rather than terminating the process abruptly.
 
 ```mermaid
 graph LR
@@ -69,7 +70,7 @@ graph LR
     S3{"3. Select Format<br/>(Docs / Slides)"}
     S4(("4. Start Agent"))
     S5["5. Generate Prompt"]
-    S6["6. Call LLM API"]
+    S6["6. Call LLM API (Retry x3)"]
     
     %% 新增：分流判斷點 (為了顯示選擇邏輯)
     Split{{"Check Selection"}}
@@ -79,7 +80,7 @@ graph LR
     S7b["7b. Call Google API<br/>Write Slides"]
     
     %% State 8-10 (收尾)
-    S8["8. Set Permissions<br/>(Common Editor)"]
+    S8["8. Set Permissions<br/>(Writer)"]
     S9["9. Send Email"]
     S10["10. Show Results<br/>(Success/Fail List)"]
 
@@ -113,14 +114,13 @@ graph LR
 
 ## ⚙️ Environment Setup & Installation
 
-> **Security Notice**  
-> For security best practices, API keys and OAuth credentials are **NOT included** in this repository.  
+> **Security Notice** > For security best practices, API keys and OAuth credentials are **NOT included** in this repository.  
 > Please follow the steps below to reproduce the environment.
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/itisJoshuaTseng/GPA-Group-Project-Agent.git
+git clone [https://github.com/itisJoshuaTseng/GPA-Group-Project-Agent.git](https://github.com/itisJoshuaTseng/GPA-Group-Project-Agent.git)
 cd GPA-Group-Project-Agent
 ```
 
@@ -134,20 +134,50 @@ pip install -r requirements.txt
 
 ### 3. Configure API Keys (`.env`)
 
-We use a `.env` file to manage sensitive NCKU API keys.
+We use a `.env` file to manage LLM providers and configuration.
 
-Rename the provided template file:
+Rename the provided template file (if available) or create a new `.env` file:
 
 ```bash
-cp .env.example .env
+# MacOS/Linux
+touch .env
+
+# Windows
+type NUL > .env
 ```
 
-Open `.env` and fill in your specific API credentials:
+Open `.env` and fill in your configuration (Choose **ONE** provider):
 
 ```ini
-API_KEY=your_ncku_api_key_here
-API_URL=https://api-gateway.netdb.csie.ncku.edu.tw/api/chat
-MODEL_NAME=gpt-oss:120b
+# --- Core Configuration ---
+# Options: openai, ollama, gemini, ncku
+LLM_PROVIDER=ncku
+
+# Default Email Domain (e.g., gmail.com, gs.ncku.edu.tw)
+DEFAULT_EMAIL_DOMAIN=gs.ncku.edu.tw
+
+# ======================================================
+# PROVIDER CONFIGURATION (Uncomment the one you are using)
+# ======================================================
+
+# --- 1. OpenAI ---
+# API_KEY=sk-proj-xxxxxxxxxxxx
+# MODEL_NAME=gpt-4o-mini
+# API_URL=[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)
+
+# --- 2. Ollama (Local) ---
+# API_KEY=unused
+# MODEL_NAME=llama3
+# API_URL=http://localhost:11434/api/chat
+
+# --- 3. Google Gemini ---
+# API_KEY=AIzaSyxxxxxxxxxxxx
+# MODEL_NAME=gemini-1.5-flash
+
+# --- 4. NCKU Internal (Legacy) ---
+# API_KEY=your_student_key
+# MODEL_NAME=gpt-oss:120b
+# API_URL=[https://api-gateway.netdb.csie.ncku.edu.tw/api/chat](https://api-gateway.netdb.csie.ncku.edu.tw/api/chat)
 ```
 
 ### 4. Configure Google OAuth Credentials
@@ -165,9 +195,8 @@ To enable Google Workspace automation, you need a Google Cloud Project with the 
 2. Rename the file to `credentials.json`.
 3. Place `credentials.json` in the root directory of this project.
 
-> **Note**  
-> On the first run, the application will open a browser window asking for permission to access your Google account.  
-> Once granted, a `token.pickle` file will be generated locally to store the session.
+> **Note** > On the first run, the application will open a browser window asking for permission to access your Google account.  
+> Once granted, a `token.json` file will be generated locally to store the secure session.
 
 ---
 
@@ -176,13 +205,13 @@ To enable Google Workspace automation, you need a Google Cloud Project with the 
 Run the Streamlit application:
 
 ```bash
-python -m streamlit run main.py
+python -m streamlit run src/main.py
 ```
 
 ### Workflow
 
 1. **Login**: Authenticate with your Google Account via the sidebar.  
-2. **Input**: Enter the course name, Student IDs, and upload the Assignment PDF.  
+2. **Input**: Enter the course name, Student IDs/Emails, and upload the Assignment PDF.  
 3. **Configure**: Select the desired output format (Docs, Slides, or both) and the project deadline.  
 4. **Launch**: Click **Start Agent** to initiate the DFA workflow.
 
@@ -193,5 +222,3 @@ python -m streamlit run main.py
 - **Ling-Cheng Tseng** — System Architecture, API Integration, Prompt Engineering  
 
 Created for the **Fall 2025 Theory of Computation Final Project**.
-
-

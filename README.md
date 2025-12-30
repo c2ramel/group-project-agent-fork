@@ -177,7 +177,7 @@ DEFAULT_EMAIL_DOMAIN=gs.ncku.edu.tw
 # --- 4. NCKU Internal (Legacy) ---
 # API_KEY=your_student_key
 # MODEL_NAME=gpt-oss:120b
-# API_URL=[https://api-gateway.netdb.csie.ncku.edu.tw/api/chat](https://api-gateway.netdb.csie.ncku.edu.tw/api/chat)
+# API_URL=https://api-gateway.netdb.csie.ncku.edu.tw/api/chat
 ```
 
 ### 4. Configure Google OAuth Credentials

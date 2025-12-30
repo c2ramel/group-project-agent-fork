@@ -151,10 +151,10 @@ Open `.env` and fill in your configuration (Choose **ONE** provider):
 ```ini
 # --- Core Configuration ---
 # Options: openai, ollama, gemini, ncku
-LLM_PROVIDER=openai
+LLM_PROVIDER=ncku
 
-# Default Email Domain (e.g., gmail.com, school.edu)
-DEFAULT_EMAIL_DOMAIN=gmail.com
+# Default Email Domain (e.g., gmail.com, gs.ncku.edu.tw)
+DEFAULT_EMAIL_DOMAIN=gs.ncku.edu.tw
 
 # ======================================================
 # PROVIDER CONFIGURATION (Uncomment the one you are using)

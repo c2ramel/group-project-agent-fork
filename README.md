@@ -1,4 +1,4 @@
-# GPA (Group Project Agent) 🎓
+<!-- # GPA (Group Project Agent) 🎓 -->
 
 > **"Automating the friction of group projects with Automata Theory & LLMs."**
 
@@ -120,7 +120,7 @@ graph LR
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/itisJoshuaTseng/GPA-Group-Project-Agent.git](https://github.com/itisJoshuaTseng/GPA-Group-Project-Agent.git)
+git clone https://github.com/itisJoshuaTseng/GPA-Group-Project-Agent.git
 cd GPA-Group-Project-Agent
 ```
 
@@ -177,7 +177,7 @@ DEFAULT_EMAIL_DOMAIN=gs.ncku.edu.tw
 # --- 4. NCKU Internal (Legacy) ---
 # API_KEY=your_student_key
 # MODEL_NAME=gpt-oss:120b
-# API_URL=[https://api-gateway.netdb.csie.ncku.edu.tw/api/chat](https://api-gateway.netdb.csie.ncku.edu.tw/api/chat)
+# API_URL=https://api-gateway.netdb.csie.ncku.edu.tw/api/chat
 ```
 
 ### 4. Configure Google OAuth Credentials
